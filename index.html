@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EngageSense</title>
+    <style>
+        /* General Styling */
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: Arial, sans-serif;
+            background-color: #121212;
+            color: #ffffff;
+        }
+        header {
+            text-align: center;
+            padding: 20px;
+            background-color: #1f1f1f;
+            font-size: 24px;
+            font-weight: bold;
+        }
+        nav {
+            display: flex;
+            justify-content: center;
+            gap: 20px;
+            padding: 10px;
+            background-color: #222;
+            position: sticky;
+            top: 0;
+        }
+        nav a {
+            color: white;
+            text-decoration: none;
+            background: #444;
+            padding: 10px 15px;
+            border-radius: 5px;
+            transition: background 0.3s ease;
+        }
+        nav a:hover {
+            background: #0f0;
+        }
+        main {
+            padding: 20px;
+            text-align: center;
+        }
+        button {
+            padding: 10px 20px;
+            margin: 10px;
+            border: none;
+            background: #0f0;
+            color: #000;
+            cursor: pointer;
+            font-size: 16px;
+            border-radius: 5px;
+        }
+        button:hover {
+            background: #00b000;
+        }
+        canvas {
+            margin-top: 20px;
+            background: #000;
+            border: 2px solid #0f0;
+            display: block;
+            margin-left: auto;
+            margin-right: auto;
+        }
+        footer {
+            text-align: center;
+            padding: 10px;
+            background-color: #1f1f1f;
+            color: #ccc;
+        }
+    </style>
+</head>
+<body>
+    <!-- Header -->
+    <header>EngageSense: Real-Time Audio Analysis</header>
+
+    <!-- Navigation -->
+    <nav>
+        <a href="#upload" onclick="showSection('upload')">Upload Audio</a>
+        <a href="#record" onclick="showSection('record')">Record Audio</a>
+        <a href="#results" onclick="showSection('results')">View Results</a>
+    </nav>
+
+    <!-- Main Content -->
+    <main>
+        <!-- Upload Section -->
+        <section id="upload" style="display: block;">
+            <h2>Upload Audio File</h2>
+            <input type="file" id="audioFile" accept="audio/*">
+            <button onclick="handleUpload()">Analyze</button>
+        </section>
+
+        <!-- Record Section -->
+        <section id="record" style="display: none;">
+            <h2>Record Audio</h2>
+            <button id="startRecord" onclick="startRecording()">Start Recording</button>
+            <button id="stopRecord" onclick="stopRecording()" disabled>Stop Recording</button>
+            <p id="recordStatus">Ready to record</p>
+        </section>
+
+        <!-- Results Section -->
+        <section id="results" style="display: none;">
+            <h2>Analysis Results</h2>
+            <canvas id="waveform" width="800" height="200"></canvas>
+            <p>Engagement Score: <span id="engagementScore">N/A</span></p>
+        </section>
+    </main>
+
+    <!-- Footer -->
+    <footer>&copy; 2024 EngageSense. All Rights Reserved.</footer>
+
+    <!-- JavaScript -->
+    <script>
+        let audioContext, analyser, microphone, audioFile, stream, canvas, ctx;
+
+        // Function to toggle sections
+        function showSection(sectionId) {
+            document.querySelectorAll('section').forEach(sec => sec.style.display = 'none');
+            document.getElementById(sectionId).style.display = 'block';
+        }
+
+        // Handle Upload Audio
+        function handleUpload() {
+            const file = document.getElementById('audioFile').files[0];
+            if (file) {
+                alert('Audio file uploaded. Analysis will be available soon.');
+            } else {
+                alert('Please upload an audio file.');
+            }
+        }
+
+        // Start Recording
+        function startRecording() {
+            navigator.mediaDevices.getUserMedia({ audio: true })
+                .then(s => {
+                    stream = s;
+                    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    microphone = audioContext.createMediaStreamSource(stream);
+                    analyser = audioContext.createAnalyser();
+                    microphone.connect(analyser);
+
+                    document.getElementById('recordStatus').innerText = "Recording...";
+                    document.getElementById('startRecord').disabled = true;
+                    document.getElementById('stopRecord').disabled = false;
+
+                    visualizeAudio();
+                })
+                .catch(err => {
+                    alert('Microphone access denied. Please allow access.');
+                });
+        }
+
+        // Stop Recording
+        function stopRecording() {
+            stream.getTracks().forEach(track => track.stop());
+            document.getElementById('recordStatus').innerText = "Recording stopped.";
+            document.getElementById('startRecord').disabled = false;
+            document.getElementById('stopRecord').disabled = true;
+        }
+
+        // Visualize Audio
+        function visualizeAudio() {
+            canvas = document.getElementById('waveform');
+            ctx = canvas.getContext('2d');
+
+            const bufferLength = analyser.frequencyBinCount;
+            const dataArray = new Uint8Array(bufferLength);
+
+            function draw() {
+                ctx.fillStyle = 'black';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+                analyser.getByteTimeDomainData(dataArray);
+
+                ctx.lineWidth = 2;
+                ctx.strokeStyle = 'lime';
+                ctx.beginPath();
+
+                const sliceWidth = canvas.width / bufferLength;
+                let x = 0;
+
+                for (let i = 0; i < bufferLength; i++) {
+                    const v = dataArray[i] / 128.0;
+                    const y = (v * canvas.height) / 2;
+
+                    if (i === 0) {
+                        ctx.moveTo(x, y);
+                    } else {
+                        ctx.lineTo(x, y);
+                    }
+                    x += sliceWidth;
+                }
+
+                ctx.lineTo(canvas.width, canvas.height / 2);
+                ctx.stroke();
+                requestAnimationFrame(draw);
+            }
+            draw();
+        }
+    </script>
+</body>
+</html>
