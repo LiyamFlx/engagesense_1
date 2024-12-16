@@ -3,12 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>EngageSense: Real-Time Voice Tone Sentiment</title>
+    <title>EngageSense: Real-Time Voice Sentiment & Visualization</title>
     <script src="https://unpkg.com/wavesurfer.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
@@ -22,36 +17,24 @@
             margin: 0;
             padding: 0;
         }
-
         header {
             text-align: center;
             padding: 20px;
             background-color: #1f1f1f;
             color: #0f0;
         }
-
         .container {
             max-width: 900px;
             margin: 20px auto;
-            padding: 20px;
             background-color: #1f1f1f;
+            padding: 20px;
             border-radius: 10px;
-            box-shadow: 0 0 10px rgba(0, 255, 0, 0.2);
         }
-
-        #waveform {
-            margin: 20px auto;
+        canvas {
+            background: #000;
             border: 2px solid #0f0;
             border-radius: 5px;
         }
-
-        .results {
-            margin-top: 20px;
-            background: #1a1a1a;
-            padding: 10px;
-            border-radius: 8px;
-        }
-
         .progress-bar {
             height: 5px;
             margin-top: 10px;
@@ -60,62 +43,75 @@
 </head>
 <body>
     <header>
-        <h1>EngageSense: Voice Tone Sentiment Detection</h1>
+        <h1>EngageSense: Real-Time Voice Sentiment & Visualization</h1>
     </header>
     <div class="container text-center">
-        <h3>Upload or Record Audio</h3>
+        <h3>Record or Upload Audio</h3>
         <div class="btn-group">
-            <button id="recordBtn" class="btn btn-success">Record</button>
+            <button id="recordBtn" class="btn btn-success">Start Recording</button>
             <button id="stopBtn" class="btn btn-danger" disabled>Stop</button>
             <button id="uploadBtn" class="btn btn-light">Upload Audio</button>
             <input type="file" id="fileInput" accept="audio/*" class="d-none">
         </div>
-
-        <div id="waveform"></div>
-        <div class="progress progress-bar bg-success" id="progressBar" style="width: 0%;"></div>
-
+        <canvas id="audioVisualization" width="800" height="200"></canvas>
         <div class="results mt-4">
             <h4>Analysis Results</h4>
-            <p>Pitch: <strong id="pitch">N/A</strong></p>
             <p>Loudness (RMS): <strong id="rms">N/A</strong></p>
             <p>Spectral Centroid: <strong id="centroid">N/A</strong></p>
+            <p>Pitch: <strong id="pitch">N/A</strong></p>
             <p>Sentiment: <strong id="sentiment">N/A</strong></p>
         </div>
-
         <canvas id="sentimentChart" width="400" height="200"></canvas>
     </div>
 
     <script>
-        let audioContext, analyzer, recorder, recordedChunks = [];
-        let wavesurfer = WaveSurfer.create({
-            container: '#waveform',
-            waveColor: 'lime',
-            progressColor: 'green',
-            cursorColor: 'red',
-            barWidth: 2
-        });
+        // DOM Elements
+        const recordBtn = document.getElementById('recordBtn');
+        const stopBtn = document.getElementById('stopBtn');
+        const uploadBtn = document.getElementById('uploadBtn');
+        const fileInput = document.getElementById('fileInput');
+        const canvas = document.getElementById('audioVisualization');
+        const ctx = canvas.getContext('2d');
 
-        let chart;
-
-        // Meyda Analyzer Setup
-        let meydaAnalyzer;
-        const sentimentModelURL = "https://storage.googleapis.com/tfjs-models/tfjs/sentiment_cnn_v1/model.json";
+        let audioContext, analyzer, meydaAnalyzer, recorder, chunks = [];
+        let sentimentModel;
 
         async function loadSentimentModel() {
-            return await tf.loadLayersModel(sentimentModelURL);
+            sentimentModel = await tf.loadLayersModel('https://storage.googleapis.com/tfjs-models/tfjs/sentiment_cnn_v1/model.json');
         }
 
-        // Initialize Recording
-        document.getElementById('recordBtn').addEventListener('click', async () => {
-            recordedChunks = [];
+        // Real-time Visualization Function
+        function visualizeAudio() {
+            const bufferLength = analyzer.frequencyBinCount;
+            const dataArray = new Uint8Array(bufferLength);
+
+            function draw() {
+                analyzer.getByteFrequencyData(dataArray);
+                ctx.fillStyle = 'black';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+                const barWidth = (canvas.width / bufferLength) * 2.5;
+                let x = 0;
+
+                for (let i = 0; i < bufferLength; i++) {
+                    const barHeight = dataArray[i];
+                    ctx.fillStyle = `rgb(${barHeight + 100}, 50, 255)`;
+                    ctx.fillRect(x, canvas.height - barHeight / 2, barWidth, barHeight / 2);
+                    x += barWidth + 1;
+                }
+                requestAnimationFrame(draw);
+            }
+            draw();
+        }
+
+        // Start Recording
+        recordBtn.addEventListener('click', async () => {
+            chunks = [];
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
             audioContext = new AudioContext();
             analyzer = audioContext.createAnalyser();
             const source = audioContext.createMediaStreamSource(stream);
-            recorder = new MediaRecorder(stream);
-
             source.connect(analyzer);
-            recorder.start();
 
             meydaAnalyzer = Meyda.createMeydaAnalyzer({
                 audioContext: audioContext,
@@ -124,193 +120,75 @@
                 featureExtractors: ["rms", "spectralCentroid", "pitch"],
                 callback: updateMetrics
             });
-
             meydaAnalyzer.start();
 
-            recorder.ondataavailable = e => recordedChunks.push(e.data);
-            recorder.onstop = () => processRecording();
-            document.getElementById('recordBtn').disabled = true;
-            document.getElementById('stopBtn').disabled = false;
+            recorder = new MediaRecorder(stream);
+            recorder.ondataavailable = e => chunks.push(e.data);
+            recorder.start();
+
+            visualizeAudio();
+            recordBtn.disabled = true;
+            stopBtn.disabled = false;
         });
 
-        document.getElementById('stopBtn').addEventListener('click', () => {
+        // Stop Recording
+        stopBtn.addEventListener('click', () => {
             recorder.stop();
             meydaAnalyzer.stop();
-            document.getElementById('recordBtn').disabled = false;
-            document.getElementById('stopBtn').disabled = true;
+            recordBtn.disabled = false;
+            stopBtn.disabled = true;
+
+            recorder.onstop = () => {
+                const blob = new Blob(chunks, { type: 'audio/wav' });
+                const url = URL.createObjectURL(blob);
+                analyzeSentiment(blob);
+            };
         });
 
+        // Upload File
+        uploadBtn.addEventListener('click', () => fileInput.click());
+        fileInput.addEventListener('change', () => {
+            const file = fileInput.files[0];
+            analyzeSentiment(file);
+        });
+
+        // Update Metrics
         function updateMetrics(features) {
             document.getElementById('rms').innerText = features.rms.toFixed(4);
             document.getElementById('centroid').innerText = features.spectralCentroid.toFixed(2);
             document.getElementById('pitch').innerText = features.pitch.toFixed(2);
         }
 
-        async function processRecording() {
-            const audioBlob = new Blob(recordedChunks, { type: 'audio/wav' });
-            wavesurfer.loadBlob(audioBlob);
-
-            const model = await loadSentimentModel();
-            const inputTensor = tf.tensor2d([0.5, 0.7, 0.6]); // Replace with real features
-            const prediction = model.predict(inputTensor.expandDims(0)).arraySync()[0];
-
+        // Analyze Sentiment
+        async function analyzeSentiment(audioFile) {
+            const tensor = tf.tensor1d([0.6, 0.8, 0.7]); // Replace with feature extraction logic
+            const prediction = sentimentModel.predict(tensor.expandDims(0)).arraySync()[0][0];
             const sentiment = prediction > 0.5 ? "Positive" : "Negative";
-            document.getElementById('sentiment').innerText = sentiment;
 
-            updateChart(prediction);
+            document.getElementById('sentiment').innerText = sentiment;
+            updateSentimentChart(prediction * 100);
         }
 
-        function updateChart(sentimentScore) {
+        // Update Sentiment Chart
+        let chart;
+        function updateSentimentChart(score) {
             const ctx = document.getElementById('sentimentChart').getContext('2d');
             if (chart) chart.destroy();
-
             chart = new Chart(ctx, {
                 type: 'bar',
                 data: {
                     labels: ['Sentiment Score'],
                     datasets: [{
-                        label: 'Voice Tone Sentiment',
-                        data: [sentimentScore * 100],
-                        backgroundColor: sentimentScore > 0.5 ? 'green' : 'red'
+                        label: 'Sentiment',
+                        data: [score],
+                        backgroundColor: score > 50 ? 'green' : 'red'
                     }]
-                },
-                options: { responsive: true }
+                }
             });
         }
-    </script>
-</body>
-</html>
 
-    <title>Real-Time Audio Visualization</title>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css">
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            background-color: #121212;
-            color: #fff;
-            text-align: center;
-            margin: 0;
-            padding: 0;
-        }
-
-        h1 {
-            margin-top: 20px;
-            color: #0f0;
-        }
-
-        canvas {
-            margin-top: 20px;
-            background: #000;
-            border: 2px solid #0f0;
-            display: block;
-            margin: 20px auto;
-            border-radius: 8px;
-        }
-
-        #controls {
-            margin-top: 10px;
-        }
-    </style>
-</head>
-<body>
-    <h1>Real-Time Audio Visualization</h1>
-    <p>Visualize microphone audio input in real-time</p>
-
-    <div id="controls" class="btn-group">
-        <button id="startBtn" class="btn btn-success">Start Visualization</button>
-        <button id="stopBtn" class="btn btn-danger" disabled>Stop Visualization</button>
-    </div>
-
-    <canvas id="engagementChart" width="800" height="400"></canvas>
-
-    <script>
-        const canvas = document.getElementById('engagementChart');
-        const ctx = canvas.getContext('2d');
-
-        const startBtn = document.getElementById('startBtn');
-        const stopBtn = document.getElementById('stopBtn');
-
-        let audioCtx, analyser, dataArray, microphoneStream;
-        let animationFrameId = null;
-
-        // Start Real-Time Visualization
-        function startVisualization() {
-            navigator.mediaDevices.getUserMedia({ audio: true })
-                .then(stream => {
-                    // Initialize audio context and analyser
-                    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-                    analyser = audioCtx.createAnalyser();
-                    analyser.fftSize = 2048;
-
-                    // Connect audio source to analyser
-                    const source = audioCtx.createMediaStreamSource(stream);
-                    source.connect(analyser);
-                    microphoneStream = stream;
-
-                    // Create data array for frequency data
-                    dataArray = new Uint8Array(analyser.frequencyBinCount);
-
-                    // Start drawing
-                    drawVisualization();
-
-                    // Toggle buttons
-                    startBtn.disabled = true;
-                    stopBtn.disabled = false;
-                })
-                .catch(err => {
-                    console.error("Error accessing microphone: ", err);
-                    alert("Microphone access denied. Please allow microphone permissions.");
-                });
-        }
-
-        // Stop Visualization
-        function stopVisualization() {
-            if (microphoneStream) {
-                microphoneStream.getTracks().forEach(track => track.stop());
-            }
-            cancelAnimationFrame(animationFrameId);
-            clearCanvas();
-
-            startBtn.disabled = false;
-            stopBtn.disabled = true;
-        }
-
-        // Clear Canvas
-        function clearCanvas() {
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-        }
-
-        // Draw Visualization
-        function drawVisualization() {
-            analyser.getByteFrequencyData(dataArray);
-
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-            ctx.fillStyle = 'rgb(0, 0, 0)';
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-            const barWidth = (canvas.width / dataArray.length) * 2.5;
-            let barHeight;
-            let x = 0;
-
-            for (let i = 0; i < dataArray.length; i++) {
-                barHeight = dataArray[i] / 2;
-
-                // Gradient color for bars
-                const red = (barHeight + 100);
-                const green = 50;
-                const blue = 255 - barHeight;
-                ctx.fillStyle = `rgb(${red},${green},${blue})`;
-
-                ctx.fillRect(x, canvas.height - barHeight, barWidth, barHeight);
-                x += barWidth + 1;
-            }
-
-            animationFrameId = requestAnimationFrame(drawVisualization);
-        }
-
-        // Event Listeners
-        startBtn.addEventListener('click', startVisualization);
-        stopBtn.addEventListener('click', stopVisualization);
+        // Load Sentiment Model on Page Load
+        loadSentimentModel();
     </script>
 </body>
 </html>
