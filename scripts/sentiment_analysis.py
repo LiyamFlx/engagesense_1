@@ -1,0 +1,1 @@
+print('{"transcription": "This is an example transcription", "sentiment": {"pos": 0.7, "neu": 0.2, "neg": 0.1}}')

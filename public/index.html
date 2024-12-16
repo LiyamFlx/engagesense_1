@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EngageSense</title>
+    <link rel="stylesheet" href="styles.css">
+    <script src="scripts.js" defer></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://unpkg.com/wavesurfer.js"></script>
+</head>
+<body>
+    <header>
+        <h1>EngageSense</h1>
+    </header>
+    <main>
+        <section>
+            <button id="uploadButton">Upload Audio</button>
+            <button id="startRecordButton">Start Recording</button>
+            <button id="stopRecordButton" disabled>Stop Recording</button>
+            <button id="analyzeButton" disabled>Analyze</button>
+            <div id="waveform"></div>
+        </section>
+        <section>
+            <h3>Metrics</h3>
+            <p>RMS: <span id="rms">N/A</span></p>
+            <p>Spectral Centroid: <span id="centroid">N/A</span></p>
+            <p>Engagement Score: <span id="engagement">N/A</span></p>
+        </section>
+    </main>
+</body>
+</html>
