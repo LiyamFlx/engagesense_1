@@ -3,217 +3,136 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>EngageSense: Real-Time Audio Engagement</title>
-    <script src="https://unpkg.com/wavesurfer.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+    <title>Real-Time Audio Visualization</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css">
     <style>
         body {
             font-family: Arial, sans-serif;
             background-color: #121212;
             color: #fff;
+            text-align: center;
             margin: 0;
             padding: 0;
         }
 
-        .intro-page {
-            text-align: center;
-            padding: 100px 20px;
-            background-color: #1f1f1f;
-        }
-
-        .hero h1 {
-            font-size: 3rem;
+        h1 {
+            margin-top: 20px;
             color: #0f0;
         }
 
-        .main-container {
-            margin-top: 30px;
-            display: none;
-        }
-
-        #waveform {
-            margin: 20px auto;
-            border: 2px solid #0f0;
-            border-radius: 5px;
-        }
-
-        .results {
-            margin-top: 20px;
-            background: #1f1f1f;
-            padding: 10px;
-            border-radius: 8px;
-            box-shadow: 0 0 10px rgba(0, 255, 0, 0.2);
-        }
-
-        .btn-group button {
-            margin: 5px;
-        }
-
-        .progress {
-            height: 5px;
-            margin: 15px auto;
-        }
-
         canvas {
-            margin: 20px auto;
+            margin-top: 20px;
+            background: #000;
+            border: 2px solid #0f0;
             display: block;
+            margin: 20px auto;
+            border-radius: 8px;
+        }
+
+        #controls {
+            margin-top: 10px;
         }
     </style>
 </head>
 <body>
+    <h1>Real-Time Audio Visualization</h1>
+    <p>Visualize microphone audio input in real-time</p>
 
-    <!-- Intro Page -->
-    <div class="intro-page" id="introPage">
-        <div class="hero">
-            <h1>Welcome to EngageSense</h1>
-            <p>Your tool for Real-Time Audio Engagement Analysis.</p>
-            <button id="startBtn" class="btn btn-success">Get Started</button>
-        </div>
+    <div id="controls" class="btn-group">
+        <button id="startBtn" class="btn btn-success">Start Visualization</button>
+        <button id="stopBtn" class="btn btn-danger" disabled>Stop Visualization</button>
     </div>
 
-    <!-- Main Page -->
-    <div class="main-container container text-center" id="mainContainer">
-        <header>
-            <h1>EngageSense: Real-Time Audio Engagement</h1>
-        </header>
+    <canvas id="engagementChart" width="800" height="400"></canvas>
 
-        <h3>Upload or Record Audio</h3>
-        <div class="btn-group" role="group">
-            <button class="btn btn-success" id="recordBtn">Record Audio</button>
-            <button class="btn btn-light" id="uploadBtn">Upload Audio</button>
-            <input type="file" id="fileInput" accept="audio/*" class="d-none" />
-            <button class="btn btn-danger" id="stopBtn" disabled>Stop</button>
-            <button class="btn btn-primary" id="analyzeBtn">Analyze</button>
-        </div>
-
-        <!-- Progress and Waveform -->
-        <div id="progress" class="progress bg-light">
-            <div class="progress-bar progress-bar-striped progress-bar-animated" style="width: 0%" id="progressBar"></div>
-        </div>
-        <div id="waveform"></div>
-
-        <!-- Results -->
-        <div class="results">
-            <h3>Analysis Results</h3>
-            <div id="feedback">Awaiting Analysis...</div>
-            <canvas id="engagementChart" width="400" height="200"></canvas>
-        </div>
-    </div>
-
-    <!-- JavaScript -->
     <script>
-        const startBtn = document.getElementById("startBtn");
-        const introPage = document.getElementById("introPage");
-        const mainContainer = document.getElementById("mainContainer");
-        const recordBtn = document.getElementById("recordBtn");
-        const stopBtn = document.getElementById("stopBtn");
-        const uploadBtn = document.getElementById("uploadBtn");
-        const analyzeBtn = document.getElementById("analyzeBtn");
-        const fileInput = document.getElementById("fileInput");
-        const feedback = document.getElementById("feedback");
-        const progressBar = document.getElementById("progressBar");
+        const canvas = document.getElementById('engagementChart');
+        const ctx = canvas.getContext('2d');
 
-        let audioChunks = [];
-        let mediaRecorder;
-        let wavesurfer;
-        let sentimentModel;
+        const startBtn = document.getElementById('startBtn');
+        const stopBtn = document.getElementById('stopBtn');
 
-        // Show Main Page
-        startBtn.addEventListener("click", () => {
-            introPage.style.display = "none";
-            mainContainer.style.display = "block";
-            loadModel();
-        });
+        let audioCtx, analyser, dataArray, microphoneStream;
+        let animationFrameId = null;
 
-        // Initialize WaveSurfer
-        wavesurfer = WaveSurfer.create({
-            container: "#waveform",
-            waveColor: "lime",
-            progressColor: "green",
-            cursorColor: "red",
-            barWidth: 2,
-            responsive: true
-        });
-
-        // Load TensorFlow.js Sentiment Model
-        async function loadModel() {
-            sentimentModel = await tf.loadLayersModel('https://storage.googleapis.com/tfjs-models/tfjs/sentiment_cnn_v1/model.json');
-            console.log("Model Loaded Successfully");
-        }
-
-        // Record Audio
-        recordBtn.addEventListener("click", () => {
+        // Start Real-Time Visualization
+        function startVisualization() {
             navigator.mediaDevices.getUserMedia({ audio: true })
                 .then(stream => {
-                    mediaRecorder = new MediaRecorder(stream);
-                    audioChunks = [];
-                    mediaRecorder.start();
-                    recordBtn.disabled = true;
+                    // Initialize audio context and analyser
+                    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                    analyser = audioCtx.createAnalyser();
+                    analyser.fftSize = 2048;
+
+                    // Connect audio source to analyser
+                    const source = audioCtx.createMediaStreamSource(stream);
+                    source.connect(analyser);
+                    microphoneStream = stream;
+
+                    // Create data array for frequency data
+                    dataArray = new Uint8Array(analyser.frequencyBinCount);
+
+                    // Start drawing
+                    drawVisualization();
+
+                    // Toggle buttons
+                    startBtn.disabled = true;
                     stopBtn.disabled = false;
-
-                    mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
                 })
-                .catch(err => console.error("Error accessing microphone:", err));
-        });
+                .catch(err => {
+                    console.error("Error accessing microphone: ", err);
+                    alert("Microphone access denied. Please allow microphone permissions.");
+                });
+        }
 
-        stopBtn.addEventListener("click", () => {
-            mediaRecorder.stop();
-            recordBtn.disabled = false;
-            stopBtn.disabled = true;
-
-            mediaRecorder.onstop = () => {
-                const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
-                wavesurfer.loadBlob(audioBlob);
-                analyzeAudio(audioBlob);
-            };
-        });
-
-        // Upload Audio
-        uploadBtn.addEventListener("click", () => fileInput.click());
-
-        fileInput.addEventListener("change", () => {
-            const file = fileInput.files[0];
-            if (file) {
-                wavesurfer.loadBlob(file);
-                analyzeAudio(file);
+        // Stop Visualization
+        function stopVisualization() {
+            if (microphoneStream) {
+                microphoneStream.getTracks().forEach(track => track.stop());
             }
-        });
+            cancelAnimationFrame(animationFrameId);
+            clearCanvas();
 
-        // Analyze Audio
-        async function analyzeAudio(file) {
-            progressBar.style.width = "50%";
-            feedback.innerText = "Analyzing...";
-
-            // Simulate analysis logic
-            const randomEngagement = [Math.random() * 100, Math.random() * 100, Math.random() * 100, Math.random() * 100];
-            progressBar.style.width = "100%";
-            updateChart(randomEngagement);
-
-            feedback.innerHTML = `
-                <strong>Physical:</strong> ${randomEngagement[0].toFixed(2)}%<br>
-                <strong>Emotional:</strong> ${randomEngagement[1].toFixed(2)}%<br>
-                <strong>Mental:</strong> ${randomEngagement[2].toFixed(2)}%<br>
-                <strong>Spiritual:</strong> ${randomEngagement[3].toFixed(2)}%
-            `;
+            startBtn.disabled = false;
+            stopBtn.disabled = true;
         }
 
-        // Update Chart
-        function updateChart(data) {
-            const ctx = document.getElementById("engagementChart").getContext("2d");
-            new Chart(ctx, {
-                type: "bar",
-                data: {
-                    labels: ["Physical", "Emotional", "Mental", "Spiritual"],
-                    datasets: [{
-                        label: "Engagement Metrics",
-                        data: data,
-                        backgroundColor: ["#0f0", "#ff0", "#00f", "#f00"]
-                    }]
-                }
-            });
+        // Clear Canvas
+        function clearCanvas() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
         }
+
+        // Draw Visualization
+        function drawVisualization() {
+            analyser.getByteFrequencyData(dataArray);
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = 'rgb(0, 0, 0)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            const barWidth = (canvas.width / dataArray.length) * 2.5;
+            let barHeight;
+            let x = 0;
+
+            for (let i = 0; i < dataArray.length; i++) {
+                barHeight = dataArray[i] / 2;
+
+                // Gradient color for bars
+                const red = (barHeight + 100);
+                const green = 50;
+                const blue = 255 - barHeight;
+                ctx.fillStyle = `rgb(${red},${green},${blue})`;
+
+                ctx.fillRect(x, canvas.height - barHeight, barWidth, barHeight);
+                x += barWidth + 1;
+            }
+
+            animationFrameId = requestAnimationFrame(drawVisualization);
+        }
+
+        // Event Listeners
+        startBtn.addEventListener('click', startVisualization);
+        stopBtn.addEventListener('click', stopVisualization);
     </script>
 </body>
 </html>
