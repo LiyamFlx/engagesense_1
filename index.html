@@ -16,7 +16,6 @@
             margin: 0;
             padding: 0;
         }
-
         header {
             text-align: center;
             padding: 20px 0;
@@ -25,7 +24,6 @@
             background-color: #222;
             color: #0f0;
         }
-
         .container {
             max-width: 900px;
             margin: 20px auto;
@@ -34,29 +32,30 @@
             border-radius: 10px;
             box-shadow: 0 0 10px rgba(0, 255, 0, 0.2);
         }
-
         button {
             margin: 5px;
         }
-
         #waveform {
             border: 2px solid #0f0;
             border-radius: 5px;
             margin-top: 10px;
         }
-
         .results {
             margin-top: 20px;
         }
-
         .spinner-border {
             display: none;
             color: #0f0;
         }
-
         canvas {
             margin: 20px auto;
             display: block;
+        }
+        .settings-panel {
+            margin-top: 20px;
+            background-color: #333;
+            padding: 10px;
+            border-radius: 5px;
         }
     </style>
 </head>
@@ -85,6 +84,20 @@
             <p>Engagement Score: <strong id="engagement">N/A</strong></p>
             <canvas id="engagementChart" width="400" height="200"></canvas>
         </div>
+
+        <!-- Custom Settings Panel -->
+        <div class="settings-panel">
+            <h4>Custom Chart Settings</h4>
+            <label for="thresholdInput">Engagement Threshold:</label>
+            <input type="number" id="thresholdInput" value="50" class="form-control mb-2" />
+            <label for="chartType">Chart Type:</label>
+            <select id="chartType" class="form-control mb-2">
+                <option value="bar">Bar</option>
+                <option value="line">Line</option>
+                <option value="radar">Radar</option>
+            </select>
+            <button id="applySettings" class="btn btn-secondary">Apply Settings</button>
+        </div>
     </div>
 
     <script>
@@ -93,6 +106,7 @@
         let wavesurfer;
         let chart;
         let audioData;
+        let sentimentModel;
 
         const fileInput = document.getElementById('fileInput');
         const uploadBtn = document.getElementById('uploadBtn');
@@ -102,6 +116,10 @@
         const clearBtn = document.getElementById('clearBtn');
         const downloadBtn = document.getElementById('downloadBtn');
         const loadingSpinner = document.getElementById('loadingSpinner');
+
+        async function loadModel() {
+            sentimentModel = await tf.loadLayersModel('https://storage.googleapis.com/tfjs-models/tfjs/sentiment_cnn_v1/model.json');
+        }
 
         // Initialize WaveSurfer
         wavesurfer = WaveSurfer.create({
@@ -121,7 +139,6 @@
                 reader.onload = (e) => {
                     wavesurfer.loadBlob(file);
                     audioData = e.target.result;
-                    alert('Audio file uploaded successfully!');
                 };
                 reader.readAsDataURL(file);
             } else {
@@ -129,84 +146,41 @@
             }
         });
 
-        // Record Audio
-        recordBtn.addEventListener('click', async () => {
-            if (!audioContext) audioContext = new (window.AudioContext || window.webkitAudioContext)();
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            const input = audioContext.createMediaStreamSource(stream);
-            recorder = new MediaRecorder(stream);
-            const chunks = [];
-            recorder.ondataavailable = (e) => chunks.push(e.data);
-            recorder.onstop = () => {
-                const blob = new Blob(chunks, { type: 'audio/wav' });
-                wavesurfer.loadBlob(blob);
-                audioData = blob;
-                alert('Recording complete!');
-            };
-            recorder.start();
-            recordBtn.disabled = true;
-            stopBtn.disabled = false;
-        });
-
-        stopBtn.addEventListener('click', () => {
-            recorder.stop();
-            stopBtn.disabled = true;
-            recordBtn.disabled = false;
-        });
-
         // Analyze Audio
-        analyzeBtn.addEventListener('click', () => {
-            if (!audioData) {
-                alert('Please upload or record an audio file first.');
+        analyzeBtn.addEventListener('click', async () => {
+            if (!audioData || !sentimentModel) {
+                alert('Please upload an audio file or record, and ensure the model is loaded.');
                 return;
             }
             loadingSpinner.style.display = 'inline-block';
-            setTimeout(() => {
-                document.getElementById('rms').innerText = '0.75';
-                document.getElementById('centroid').innerText = '2200 Hz';
-                document.getElementById('sentiment').innerText = 'Positive';
-                document.getElementById('engagement').innerText = '85%';
-                updateChart();
-                loadingSpinner.style.display = 'none';
-            }, 2000); // Simulated analysis delay
+            const inputTensor = tf.tensor1d([0.5, 0.6, 0.2]); // Replace with real extracted features.
+            const prediction = sentimentModel.predict(inputTensor.expandDims(0));
+            const sentimentScore = prediction.arraySync()[0][0];
+
+            document.getElementById('sentiment').innerText = sentimentScore > 0.5 ? 'Positive' : 'Negative';
+            updateChart([0.75, 2200, sentimentScore * 100]);
+            loadingSpinner.style.display = 'none';
         });
 
         // Update Chart
-        function updateChart() {
+        function updateChart(data) {
             const ctx = document.getElementById('engagementChart').getContext('2d');
+            const chartType = document.getElementById('chartType').value;
             if (chart) chart.destroy();
             chart = new Chart(ctx, {
-                type: 'bar',
+                type: chartType,
                 data: {
-                    labels: ['RMS', 'Spectral Centroid', 'Engagement'],
+                    labels: ['RMS', 'Spectral Centroid', 'Sentiment'],
                     datasets: [{
-                        label: 'Metrics',
-                        data: [0.75, 2200, 85],
+                        label: 'Engagement Metrics',
+                        data: data,
                         backgroundColor: ['#0f0', '#ff0', '#00f']
                     }]
                 }
             });
         }
 
-        // Clear Data
-        clearBtn.addEventListener('click', () => {
-            wavesurfer.empty();
-            document.getElementById('rms').innerText = 'N/A';
-            document.getElementById('centroid').innerText = 'N/A';
-            document.getElementById('sentiment').innerText = 'N/A';
-            document.getElementById('engagement').innerText = 'N/A';
-            if (chart) chart.destroy();
-            audioData = null;
-        });
-
-        // Download Report
-        downloadBtn.addEventListener('click', () => {
-            const blob = new Blob([`RMS: 0.75\nSpectral Centroid: 2200 Hz\nSentiment: Positive\nEngagement: 85%`], { type: 'text/plain' });
-            const a = document.createElement('a');
-            a.href = URL.createObjectURL(blob);
-            a.download = 'engagement_report.txt';
-            a.click();
-        });
+        loadModel();
     </script>
 </body>
 </html>
