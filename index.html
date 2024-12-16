@@ -3,6 +3,184 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EngageSense: Real-Time Voice Tone Sentiment</title>
+    <script src="https://unpkg.com/wavesurfer.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+    <script src="https://unpkg.com/meyda/dist/meyda.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #121212;
+            color: #fff;
+            margin: 0;
+            padding: 0;
+        }
+
+        header {
+            text-align: center;
+            padding: 20px;
+            background-color: #1f1f1f;
+            color: #0f0;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 20px auto;
+            padding: 20px;
+            background-color: #1f1f1f;
+            border-radius: 10px;
+            box-shadow: 0 0 10px rgba(0, 255, 0, 0.2);
+        }
+
+        #waveform {
+            margin: 20px auto;
+            border: 2px solid #0f0;
+            border-radius: 5px;
+        }
+
+        .results {
+            margin-top: 20px;
+            background: #1a1a1a;
+            padding: 10px;
+            border-radius: 8px;
+        }
+
+        .progress-bar {
+            height: 5px;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>EngageSense: Voice Tone Sentiment Detection</h1>
+    </header>
+    <div class="container text-center">
+        <h3>Upload or Record Audio</h3>
+        <div class="btn-group">
+            <button id="recordBtn" class="btn btn-success">Record</button>
+            <button id="stopBtn" class="btn btn-danger" disabled>Stop</button>
+            <button id="uploadBtn" class="btn btn-light">Upload Audio</button>
+            <input type="file" id="fileInput" accept="audio/*" class="d-none">
+        </div>
+
+        <div id="waveform"></div>
+        <div class="progress progress-bar bg-success" id="progressBar" style="width: 0%;"></div>
+
+        <div class="results mt-4">
+            <h4>Analysis Results</h4>
+            <p>Pitch: <strong id="pitch">N/A</strong></p>
+            <p>Loudness (RMS): <strong id="rms">N/A</strong></p>
+            <p>Spectral Centroid: <strong id="centroid">N/A</strong></p>
+            <p>Sentiment: <strong id="sentiment">N/A</strong></p>
+        </div>
+
+        <canvas id="sentimentChart" width="400" height="200"></canvas>
+    </div>
+
+    <script>
+        let audioContext, analyzer, recorder, recordedChunks = [];
+        let wavesurfer = WaveSurfer.create({
+            container: '#waveform',
+            waveColor: 'lime',
+            progressColor: 'green',
+            cursorColor: 'red',
+            barWidth: 2
+        });
+
+        let chart;
+
+        // Meyda Analyzer Setup
+        let meydaAnalyzer;
+        const sentimentModelURL = "https://storage.googleapis.com/tfjs-models/tfjs/sentiment_cnn_v1/model.json";
+
+        async function loadSentimentModel() {
+            return await tf.loadLayersModel(sentimentModelURL);
+        }
+
+        // Initialize Recording
+        document.getElementById('recordBtn').addEventListener('click', async () => {
+            recordedChunks = [];
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            audioContext = new AudioContext();
+            analyzer = audioContext.createAnalyser();
+            const source = audioContext.createMediaStreamSource(stream);
+            recorder = new MediaRecorder(stream);
+
+            source.connect(analyzer);
+            recorder.start();
+
+            meydaAnalyzer = Meyda.createMeydaAnalyzer({
+                audioContext: audioContext,
+                source: source,
+                bufferSize: 512,
+                featureExtractors: ["rms", "spectralCentroid", "pitch"],
+                callback: updateMetrics
+            });
+
+            meydaAnalyzer.start();
+
+            recorder.ondataavailable = e => recordedChunks.push(e.data);
+            recorder.onstop = () => processRecording();
+            document.getElementById('recordBtn').disabled = true;
+            document.getElementById('stopBtn').disabled = false;
+        });
+
+        document.getElementById('stopBtn').addEventListener('click', () => {
+            recorder.stop();
+            meydaAnalyzer.stop();
+            document.getElementById('recordBtn').disabled = false;
+            document.getElementById('stopBtn').disabled = true;
+        });
+
+        function updateMetrics(features) {
+            document.getElementById('rms').innerText = features.rms.toFixed(4);
+            document.getElementById('centroid').innerText = features.spectralCentroid.toFixed(2);
+            document.getElementById('pitch').innerText = features.pitch.toFixed(2);
+        }
+
+        async function processRecording() {
+            const audioBlob = new Blob(recordedChunks, { type: 'audio/wav' });
+            wavesurfer.loadBlob(audioBlob);
+
+            const model = await loadSentimentModel();
+            const inputTensor = tf.tensor2d([0.5, 0.7, 0.6]); // Replace with real features
+            const prediction = model.predict(inputTensor.expandDims(0)).arraySync()[0];
+
+            const sentiment = prediction > 0.5 ? "Positive" : "Negative";
+            document.getElementById('sentiment').innerText = sentiment;
+
+            updateChart(prediction);
+        }
+
+        function updateChart(sentimentScore) {
+            const ctx = document.getElementById('sentimentChart').getContext('2d');
+            if (chart) chart.destroy();
+
+            chart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: ['Sentiment Score'],
+                    datasets: [{
+                        label: 'Voice Tone Sentiment',
+                        data: [sentimentScore * 100],
+                        backgroundColor: sentimentScore > 0.5 ? 'green' : 'red'
+                    }]
+                },
+                options: { responsive: true }
+            });
+        }
+    </script>
+</body>
+</html>
+
     <title>Real-Time Audio Visualization</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css">
     <style>
